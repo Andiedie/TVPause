@@ -6,11 +6,18 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.IBinder
 import android.util.Log
+import com.androidnetworking.AndroidNetworking
+import com.google.gson.Gson
+import com.rx2androidnetworking.Rx2AndroidNetworking
 import io.reactivex.Observable
+import io.reactivex.Scheduler
+import io.reactivex.schedulers.Schedulers
 import java.net.Socket
+import kotlin.math.log
 
-private const val TAG = "TVPause.TVDiscovery"
+private const val TAG = "TVPause.Service"
 private const val SERVICE_TYPE = "_rc._tcp"
+private const val HTTP_PORT = 6095
 
 private val CONFIRM_BYTES = byteArrayOf(
     0x04, 0x00, 0x41, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02,
@@ -43,6 +50,8 @@ class Service: android.app.Service() {
     }
 
     lateinit var mSocket : Socket
+    var volumeBackup = 0
+
     object ACTION {
         const val Initial = "Initial"
         const val Stop = "Stop"
@@ -108,6 +117,16 @@ class Service: android.app.Service() {
         }
     }
 
+    private fun getVolume() : Observable<Volume> {
+        return Rx2AndroidNetworking
+            .get("http://${mSocket.inetAddress.hostAddress}:$HTTP_PORT/general")
+            .addQueryParameter("action", "getVolum")
+            .build()
+            .getObjectObservable(APIVolume::class.java)
+            .subscribeOn(Schedulers.io())
+            .map { Gson().fromJson(it.data, Volume::class.java) }
+    }
+
     private fun getSocket() : Observable<Socket> {
         Log.d(TAG, "mSocket initialized: ${::mSocket.isInitialized}")
         return if (::mSocket.isInitialized) {
@@ -117,8 +136,8 @@ class Service: android.app.Service() {
         }
     }
 
-    private fun stopOrResume(socket: Socket) {
-        val oStream = socket.getOutputStream()
+    private fun stopOrResume() {
+        val oStream = mSocket.getOutputStream()
         val press = CONFIRM_BYTES
         val up = CONFIRM_BYTES.copyOf()
         up[0x13] = 0x01
@@ -128,18 +147,18 @@ class Service: android.app.Service() {
         Log.d(TAG, "stopOrResume")
     }
 
-    private fun setVolume(socket: Socket, current: Int, target: Int) {
-        if (current == target) { return }
-        val oStream = socket.getOutputStream()
-        val press = if (current < target) VOLUME_UP_BYTES else VOLUME_DOWN_BYTES
+    private fun setVolume(delta: Int) {
+        if (delta == 0) { return }
+        val oStream = mSocket.getOutputStream()
+        val press = if (delta > 0) VOLUME_UP_BYTES else VOLUME_DOWN_BYTES
         val up = CONFIRM_BYTES.copyOf()
         up[0x13] = 0x01
-        for (i in 1..(Math.abs(target - current))) {
+        for (i in 1..(Math.abs(delta))) {
             oStream.write(press)
             oStream.write(up)
         }
         oStream.flush()
-        Log.d(TAG, "setVolume from $current to $target")
+        Log.d(TAG, "Volume ${if(delta > 0) "up" else "down"} ${Math.abs(delta)}")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -147,20 +166,26 @@ class Service: android.app.Service() {
         when (action) {
             ACTION.Initial -> {
                 Log.d(TAG, "Initial")
+                AndroidNetworking.initialize(this)
                 getSocket().subscribe { mSocket = it }
             }
             ACTION.Stop -> {
                 Log.d(TAG, "Stop")
-                getSocket().subscribe {
-                    stopOrResume(it)
-                    setVolume(it, 50, 0)
+                val target = 0
+                getVolume().subscribe {
+                    stopOrResume()
+                    volumeBackup = it.volum
+                    Log.d(TAG, "target: $target current:${it.volum}")
+                    setVolume(target - it.volum)
                 }
             }
             ACTION.Resume -> {
+                val target = volumeBackup
                 Log.d(TAG, "Resume")
-                getSocket().subscribe {
-                    stopOrResume(it)
-                    setVolume(it, 0, 20)
+                getVolume().subscribe {
+                    stopOrResume()
+                    Log.d(TAG, "target: $target current:${it.volum}")
+                    setVolume(target - it.volum)
                 }
             }
         }
