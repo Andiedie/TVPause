@@ -1,9 +1,11 @@
 package cn.andiedie.tvpause
 
+import android.content.Context
 import android.content.Intent
 import android.support.v7.app.AppCompatActivity
 import android.os.Bundle
 import android.widget.Button
+import android.widget.CheckBox
 
 class MainActivity : AppCompatActivity() {
 
@@ -15,9 +17,9 @@ class MainActivity : AppCompatActivity() {
         intent.action = Service.ACTION.Initial
         startService(intent)
 
-        findViewById<Button>(R.id.stop).setOnClickListener {
+        findViewById<Button>(R.id.pause).setOnClickListener {
             Intent(this, Service::class.java)
-            intent.action = Service.ACTION.Stop
+            intent.action = Service.ACTION.Pause
             startService(intent)
         }
 
@@ -25,6 +27,12 @@ class MainActivity : AppCompatActivity() {
             Intent(this, Service::class.java)
             intent.action = Service.ACTION.Resume
             startService(intent)
+        }
+
+        findViewById<CheckBox>(R.id.pauseOnCall).setOnClickListener{
+            val checked = (it as CheckBox).isChecked
+            val setting = getSharedPreferences(Const.SETTING_NAME, Context.MODE_PRIVATE)
+            setting.edit().putBoolean(Const.PAUSE_ON_CALL, checked).apply()
         }
     }
 }
