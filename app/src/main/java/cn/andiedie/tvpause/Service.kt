@@ -47,6 +47,7 @@ class Service: android.app.Service() {
         return null
     }
 
+    lateinit var discoveryResult: Observable<NsdServiceInfo>
     lateinit var mSocket : Socket
     var volumeBackup = 0
 
@@ -56,53 +57,56 @@ class Service: android.app.Service() {
         const val Resume = "Resume"
     }
     private fun discovery() : Observable<NsdServiceInfo> {
-        return Observable.create{
-            val mNsdManager = getSystemService(Context.NSD_SERVICE) as NsdManager
-            val mDiscoveryListener = object : NsdManager.DiscoveryListener {
-                override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
-                    val mDiscoveryListener = this
-                    Log.d(TAG, "ServiceFound: $serviceInfo")
-                    mNsdManager.resolveService(serviceInfo, object: NsdManager.ResolveListener {
-                        override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                            Log.e(TAG, "Resolve failed: $errorCode")
-                        }
-
-                        override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
-                            Log.d(TAG, "Resolve Succeeded. $serviceInfo")
-                            mNsdManager.stopServiceDiscovery(mDiscoveryListener)
-                            if (serviceInfo !== null) {
-                                it.onNext(serviceInfo)
+        if (!::discoveryResult.isInitialized) {
+            discoveryResult = Observable.create{
+                val mNsdManager = getSystemService(Context.NSD_SERVICE) as NsdManager
+                val mDiscoveryListener = object : NsdManager.DiscoveryListener {
+                    override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
+                        val mDiscoveryListener = this
+                        Log.d(TAG, "ServiceFound: $serviceInfo")
+                        mNsdManager.resolveService(serviceInfo, object: NsdManager.ResolveListener {
+                            override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                                Log.e(TAG, "Resolve failed: $errorCode")
                             }
-                        }
 
-                    })
-                }
+                            override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
+                                Log.d(TAG, "Resolve Succeeded. $serviceInfo")
+                                mNsdManager.stopServiceDiscovery(mDiscoveryListener)
+                                if (serviceInfo !== null) {
+                                    it.onNext(serviceInfo)
+                                }
+                            }
 
-                override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                    Log.e(TAG, "Stop DNS-SD discovery failed: Error code:$errorCode")
-                    mNsdManager.stopServiceDiscovery(this)
-                }
+                        })
+                    }
 
-                override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                    Log.e(TAG, "Start DNS-SD discovery failed: Error code:$errorCode")
-                    mNsdManager.stopServiceDiscovery(this)
-                }
+                    override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                        Log.e(TAG, "Stop DNS-SD discovery failed: Error code:$errorCode")
+                        mNsdManager.stopServiceDiscovery(this)
+                    }
 
-                override fun onServiceLost(serviceInfo: NsdServiceInfo?) {
-                    Log.e(TAG, "DNS-SD service lost: $serviceInfo")
-                }
+                    override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                        Log.e(TAG, "Start DNS-SD discovery failed: Error code:$errorCode")
+                        mNsdManager.stopServiceDiscovery(this)
+                    }
 
-                override fun onDiscoveryStarted(serviceType: String?) {
-                    Log.d(TAG, "DNS-SD discovery started")
-                }
+                    override fun onServiceLost(serviceInfo: NsdServiceInfo?) {
+                        Log.e(TAG, "DNS-SD service lost: $serviceInfo")
+                    }
 
-                override fun onDiscoveryStopped(serviceType: String?) {
-                    Log.d(TAG, "DNS-SD discovery stopped: $serviceType")
-                    it.onComplete()
+                    override fun onDiscoveryStarted(serviceType: String?) {
+                        Log.d(TAG, "DNS-SD discovery started")
+                    }
+
+                    override fun onDiscoveryStopped(serviceType: String?) {
+                        Log.d(TAG, "DNS-SD discovery stopped: $serviceType")
+                        it.onComplete()
+                    }
                 }
+                mNsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, mDiscoveryListener)
             }
-            mNsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, mDiscoveryListener)
         }
+        return discoveryResult
     }
 
     private fun connect(serviceInfo: NsdServiceInfo) : Observable<Socket> {
@@ -126,7 +130,6 @@ class Service: android.app.Service() {
     }
 
     private fun getSocket() : Observable<Socket> {
-        Log.d(TAG, "mSocket initialized: ${::mSocket.isInitialized}")
         return if (::mSocket.isInitialized) {
             Observable.just(mSocket)
         } else {
@@ -169,22 +172,28 @@ class Service: android.app.Service() {
             }
             ACTION.Pause -> {
                 Log.d(TAG, "Pause")
-                val target = 0
-                getVolume().subscribe {
-                    pauseOrStop()
-                    volumeBackup = it.volum
-                    Log.d(TAG, "target: $target current:${it.volum}")
-                    setVolume(target - it.volum)
+                if (::mSocket.isInitialized) {
+                    val target = 0
+                    getVolume().subscribe {
+                        pauseOrStop()
+                        volumeBackup = it.volum
+                        Log.d(TAG, "target: $target current:${it.volum}")
+                        setVolume(target - it.volum)
+                    }
                 }
+
             }
             ACTION.Resume -> {
-                val target = volumeBackup
                 Log.d(TAG, "Resume")
-                getVolume().subscribe {
-                    pauseOrStop()
-                    Log.d(TAG, "target: $target current:${it.volum}")
-                    setVolume(target - it.volum)
+                if (::mSocket.isInitialized) {
+                    val target = volumeBackup
+                    getVolume().subscribe {
+                        pauseOrStop()
+                        Log.d(TAG, "target: $target current:${it.volum}")
+                        setVolume(target - it.volum)
+                    }
                 }
+
             }
         }
         return super.onStartCommand(intent, flags, startId)
@@ -195,7 +204,6 @@ class Service: android.app.Service() {
             mSocket.close()
             Log.d(TAG, "Socket close")
         }
-        super.onDestroy()
     }
 
 }

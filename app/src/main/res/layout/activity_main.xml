@@ -9,7 +9,6 @@
 
     <TextView
             android:id="@+id/status"
-            android:text="@string/unlink"
             app:layout_constraintTop_toTopOf="parent"
             app:layout_constraintLeft_toLeftOf="parent"
             app:layout_constraintRight_toRightOf="parent"
@@ -39,6 +38,7 @@
             app:layout_constraintLeft_toLeftOf="parent"
             app:layout_constraintRight_toRightOf="parent"
             android:text="@string/resume"
+            android:layout_marginTop="5dp"
             />
 
     <CheckBox

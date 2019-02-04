@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">TVPause</string>
-    <string name="unlink">未连接</string>
+    <string name="status">%1$s %2$s</string>
     <string name="pause">暂停</string>
     <string name="resume">继续</string>
     <string name="pauseOnCall">接打电话时自动暂停</string>
