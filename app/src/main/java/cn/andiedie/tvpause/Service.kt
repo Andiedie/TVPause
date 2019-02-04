@@ -10,10 +10,8 @@ import com.androidnetworking.AndroidNetworking
 import com.google.gson.Gson
 import com.rx2androidnetworking.Rx2AndroidNetworking
 import io.reactivex.Observable
-import io.reactivex.Scheduler
 import io.reactivex.schedulers.Schedulers
 import java.net.Socket
-import kotlin.math.log
 
 private const val TAG = "TVPause.Service"
 private const val SERVICE_TYPE = "_rc._tcp"
@@ -54,7 +52,7 @@ class Service: android.app.Service() {
 
     object ACTION {
         const val Initial = "Initial"
-        const val Stop = "Stop"
+        const val Pause = "Pause"
         const val Resume = "Resume"
     }
     private fun discovery() : Observable<NsdServiceInfo> {
@@ -136,7 +134,7 @@ class Service: android.app.Service() {
         }
     }
 
-    private fun stopOrResume() {
+    private fun pauseOrStop() {
         val oStream = mSocket.getOutputStream()
         val press = CONFIRM_BYTES
         val up = CONFIRM_BYTES.copyOf()
@@ -169,11 +167,11 @@ class Service: android.app.Service() {
                 AndroidNetworking.initialize(this)
                 getSocket().subscribe { mSocket = it }
             }
-            ACTION.Stop -> {
-                Log.d(TAG, "Stop")
+            ACTION.Pause -> {
+                Log.d(TAG, "Pause")
                 val target = 0
                 getVolume().subscribe {
-                    stopOrResume()
+                    pauseOrStop()
                     volumeBackup = it.volum
                     Log.d(TAG, "target: $target current:${it.volum}")
                     setVolume(target - it.volum)
@@ -183,7 +181,7 @@ class Service: android.app.Service() {
                 val target = volumeBackup
                 Log.d(TAG, "Resume")
                 getVolume().subscribe {
-                    stopOrResume()
+                    pauseOrStop()
                     Log.d(TAG, "target: $target current:${it.volum}")
                     setVolume(target - it.volum)
                 }
