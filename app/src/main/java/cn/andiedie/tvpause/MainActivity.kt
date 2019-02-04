@@ -95,6 +95,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onBackPressed() {
+        moveTaskToBack(false)
+    }
+
     private fun registerPhoneStateReceiver() {
         if (receiver == null) {
             Log.d(TAG, "Register PhoneStateReceive")
