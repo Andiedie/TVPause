@@ -11,6 +11,7 @@ import com.google.gson.Gson
 import com.rx2androidnetworking.Rx2AndroidNetworking
 import io.reactivex.Observable
 import io.reactivex.schedulers.Schedulers
+import org.greenrobot.eventbus.EventBus
 import java.net.Socket
 
 private const val TAG = "TVPause.Service"
@@ -115,6 +116,7 @@ class Service: android.app.Service() {
         return Observable.create{
             it.onNext(Socket(host, port))
             Log.d(TAG, "Connected")
+            EventBus.getDefault().post(ConnectedEvent())
             it.onComplete()
         }
     }

@@ -14,6 +14,9 @@ import android.util.Log
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.TextView
+import org.greenrobot.eventbus.EventBus
+import org.greenrobot.eventbus.Subscribe
+import org.greenrobot.eventbus.ThreadMode
 
 private const val PERMISSIONS_REQUEST_READ_PHONE_STATE = 123
 private const val TAG = "TVPause.MainActivity"
@@ -53,6 +56,7 @@ class MainActivity : AppCompatActivity() {
 
         checkBox.setOnClickListener{
             pauseOnCall = (it as CheckBox).isChecked
+            updateStatus()
             val setting = getSharedPreferences(Const.SETTING_NAME, Context.MODE_PRIVATE)
             setting.edit().putBoolean(Const.PAUSE_ON_CALL, pauseOnCall).apply()
             if (pauseOnCall) {
@@ -76,6 +80,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         updateStatus()
+        EventBus.getDefault().register(this)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -99,6 +104,13 @@ class MainActivity : AppCompatActivity() {
         moveTaskToBack(false)
     }
 
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onMessageEvent(connectedEvent: ConnectedEvent) {
+        Log.d(TAG, "Connected received")
+        link = true
+        updateStatus()
+    }
+
     private fun registerPhoneStateReceiver() {
         if (receiver == null) {
             Log.d(TAG, "Register PhoneStateReceive")
@@ -118,9 +130,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateStatus() {
-        statusView.text = resources.getString(R.string.status,
+        statusView.text = resources.getString(
+            R.string.status,
             if (permission) "已授权" else "未授权",
-            if (link) "已连接" else "未连接")
+            if (link) "已连接" else "未连接"
+        )
         val color : Int = if (pauseOnCall) {
             if (permission && link) {
                 R.color.colorSuccess
@@ -136,4 +150,5 @@ class MainActivity : AppCompatActivity() {
         }
         statusView.setBackgroundResource(color)
     }
+
 }
