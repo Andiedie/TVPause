@@ -7,8 +7,6 @@ import android.content.Intent
 import android.telephony.TelephonyManager
 import android.telephony.TelephonyManager.ACTION_PHONE_STATE_CHANGED
 
-private const val TAG = "TVPause.PSReceiver"
-
 class PhoneStateReceiver : BroadcastReceiver() {
     private var lastIdle = true
     override fun onReceive(context: Context?, intent: Intent?) {
@@ -19,15 +17,17 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 if (tManager.callState == TelephonyManager.CALL_STATE_IDLE) {
                     lastIdle = true
                     // resume
-                    val intent = Intent(context, Service::class.java)
-                    intent.action = Service.ACTION.Resume
-                    context.startService(intent)
+                    Intent(context, Service::class.java).also {
+                        it.action = Service.ACTION.Resume
+                        context.startService(intent)
+                    }
                 } else if (lastIdle) {
                     lastIdle = false
                     // pause
-                    val intent = Intent(context, Service::class.java)
-                    intent.action = Service.ACTION.Pause
-                    context.startService(intent)
+                    Intent(context, Service::class.java).also {
+                        it.action = Service.ACTION.Pause
+                        context.startService(intent)
+                    }
                 }
             }
         }

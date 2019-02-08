@@ -12,7 +12,6 @@ import com.rx2androidnetworking.Rx2AndroidNetworking
 import io.reactivex.Observable
 import io.reactivex.schedulers.Schedulers
 import org.greenrobot.eventbus.EventBus
-import java.io.IOError
 import java.io.IOException
 import java.net.Socket
 
@@ -50,7 +49,7 @@ class Service: android.app.Service() {
         return null
     }
 
-    lateinit var discoveryResult: Observable<NsdServiceInfo>
+    private lateinit var discoveryResult: Observable<NsdServiceInfo>
     private var mSocket : Socket? = null
     private var volumeBackup = 0
 
@@ -130,9 +129,9 @@ class Service: android.app.Service() {
                             var bytes : Int
                             do {
                                 bytes = socket.getInputStream().read()
-                                Log.v(TAG, "Socket received $bytes")
                             }
                             while (bytes != -1)
+                            Log.v(TAG, "Socket received -1")
                         } catch (err: IOException) {
                             Log.e(TAG, "Socket exception: ${err.message}")
                         }
