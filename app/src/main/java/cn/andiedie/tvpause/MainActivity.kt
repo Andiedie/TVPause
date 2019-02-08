@@ -106,8 +106,8 @@ class MainActivity : AppCompatActivity() {
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onMessageEvent(connectedEvent: ConnectedEvent) {
-        Log.d(TAG, "Connected received")
-        link = true
+        Log.d(TAG, "Connection status received: ${connectedEvent.connected}")
+        link = connectedEvent.connected
         updateStatus()
     }
 

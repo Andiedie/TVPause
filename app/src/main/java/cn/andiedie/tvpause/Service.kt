@@ -12,6 +12,8 @@ import com.rx2androidnetworking.Rx2AndroidNetworking
 import io.reactivex.Observable
 import io.reactivex.schedulers.Schedulers
 import org.greenrobot.eventbus.EventBus
+import java.io.IOError
+import java.io.IOException
 import java.net.Socket
 
 private const val TAG = "TVPause.Service"
@@ -49,8 +51,8 @@ class Service: android.app.Service() {
     }
 
     lateinit var discoveryResult: Observable<NsdServiceInfo>
-    lateinit var mSocket : Socket
-    var volumeBackup = 0
+    private var mSocket : Socket? = null
+    private var volumeBackup = 0
 
     object ACTION {
         const val Initial = "Initial"
@@ -110,20 +112,53 @@ class Service: android.app.Service() {
         return discoveryResult
     }
 
-    private fun connect(serviceInfo: NsdServiceInfo) : Observable<Socket> {
-        val host = serviceInfo.host
-        val port = serviceInfo.port
-        return Observable.create{
-            it.onNext(Socket(host, port))
-            Log.d(TAG, "Connected")
-            EventBus.getDefault().post(ConnectedEvent())
-            it.onComplete()
+    private fun connect() : Observable<Socket> {
+        return if (mSocket != null) {
+            Observable.just(mSocket)
+        } else {
+            discovery().flatMap<Socket> {serviceInfo ->
+                Observable.create{
+                    val host = serviceInfo.host
+                    val port = serviceInfo.port
+                    val socket = Socket(host, port)
+                    it.onNext(socket)
+                    mSocket = socket
+                    EventBus.getDefault().post(ConnectedEvent(true))
+                    Log.d(TAG, "Socket connected")
+                    val onClose: Observable<Boolean> = Observable.create{emitter ->
+                        try {
+                            var bytes : Int
+                            do {
+                                bytes = socket.getInputStream().read()
+                                Log.v(TAG, "Socket received $bytes")
+                            }
+                            while (bytes != -1)
+                        } catch (err: IOException) {
+                            Log.e(TAG, "Socket exception: ${err.message}")
+                        }
+                        Log.d(TAG, "Socket closed")
+                        emitter.onNext(true)
+                        emitter.onComplete()
+                    }
+                    Log.d(TAG, "onClose defined")
+                    onClose
+                        .observeOn(Schedulers.io())
+                        .subscribeOn(Schedulers.io())
+                        .subscribe{
+                            mSocket = null
+                            Log.d(TAG, "Socket disconnected")
+                            EventBus.getDefault().post(ConnectedEvent(false))
+                        }
+                    Log.d(TAG, "onClose subscribe")
+                    it.onComplete()
+                }
+            }
         }
     }
 
-    private fun getVolume() : Observable<Volume> {
+    private fun getVolume(socket: Socket) : Observable<Volume> {
         return Rx2AndroidNetworking
-            .get("http://${mSocket.inetAddress.hostAddress}:$HTTP_PORT/general")
+            .get("http://${socket.inetAddress.hostAddress}:$HTTP_PORT/general")
             .addQueryParameter("action", "getVolum")
             .build()
             .getObjectObservable(APIVolume::class.java)
@@ -131,16 +166,8 @@ class Service: android.app.Service() {
             .map { Gson().fromJson(it.data, Volume::class.java) }
     }
 
-    private fun getSocket() : Observable<Socket> {
-        return if (::mSocket.isInitialized) {
-            Observable.just(mSocket)
-        } else {
-            discovery().flatMap { connect(it) }
-        }
-    }
-
-    private fun pauseOrStop() {
-        val oStream = mSocket.getOutputStream()
+    private fun pauseOrStop(socket: Socket) {
+        val oStream = socket.getOutputStream()
         val press = CONFIRM_BYTES
         val up = CONFIRM_BYTES.copyOf()
         up[0x13] = 0x01
@@ -150,9 +177,9 @@ class Service: android.app.Service() {
         Log.d(TAG, "stopOrResume")
     }
 
-    private fun setVolume(delta: Int) {
+    private fun setVolume(delta: Int, socket: Socket) {
         if (delta == 0) { return }
-        val oStream = mSocket.getOutputStream()
+        val oStream = socket.getOutputStream()
         val press = if (delta > 0) VOLUME_UP_BYTES else VOLUME_DOWN_BYTES
         val up = CONFIRM_BYTES.copyOf()
         up[0x13] = 0x01
@@ -170,29 +197,28 @@ class Service: android.app.Service() {
             ACTION.Initial -> {
                 Log.d(TAG, "Initial")
                 AndroidNetworking.initialize(this)
-                getSocket().subscribe { mSocket = it }
+                connect().subscribe {}
             }
             ACTION.Pause -> {
                 Log.d(TAG, "Pause")
-                if (::mSocket.isInitialized) {
+                connect().subscribe {socket ->
                     val target = 0
-                    getVolume().subscribe {
-                        pauseOrStop()
+                    getVolume(socket).subscribe {
+                        pauseOrStop(socket)
                         volumeBackup = it.volum
                         Log.d(TAG, "target: $target current:${it.volum}")
-                        setVolume(target - it.volum)
+                        setVolume(target - it.volum, socket)
                     }
                 }
-
             }
             ACTION.Resume -> {
                 Log.d(TAG, "Resume")
-                if (::mSocket.isInitialized) {
+                connect().subscribe {socket ->
                     val target = volumeBackup
-                    getVolume().subscribe {
-                        pauseOrStop()
+                    getVolume(socket).subscribe {
+                        pauseOrStop(socket)
                         Log.d(TAG, "target: $target current:${it.volum}")
-                        setVolume(target - it.volum)
+                        setVolume(target - it.volum, socket)
                     }
                 }
 
@@ -202,10 +228,8 @@ class Service: android.app.Service() {
     }
 
     override fun onDestroy() {
-        if (::mSocket.isInitialized) {
-            mSocket.close()
-            Log.d(TAG, "Socket close")
-        }
+        mSocket?.close()
+        Log.d(TAG, "Socket close")
     }
 
 }
