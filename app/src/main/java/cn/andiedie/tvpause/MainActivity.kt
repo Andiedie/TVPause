@@ -123,7 +123,6 @@ class MainActivity : AppCompatActivity() {
     private fun unregisterPhoneStateReceiver() {
         if (receiver != null) {
             Log.d(TAG, "Unregister PhoneStateReceive")
-
             unregisterReceiver(receiver)
             receiver = null
         }

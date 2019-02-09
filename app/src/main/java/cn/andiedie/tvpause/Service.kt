@@ -10,9 +10,13 @@ import com.androidnetworking.AndroidNetworking
 import com.google.gson.Gson
 import com.rx2androidnetworking.Rx2AndroidNetworking
 import io.reactivex.Observable
+import io.reactivex.disposables.CompositeDisposable
+import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
 import org.greenrobot.eventbus.EventBus
 import java.io.IOException
+import java.net.ConnectException
+import java.net.InetAddress
 import java.net.Socket
 
 private const val TAG = "TVPause.Service"
@@ -49,110 +53,118 @@ class Service: android.app.Service() {
         return null
     }
 
-    private lateinit var discoveryResult: Observable<NsdServiceInfo>
     private var mSocket : Socket? = null
     private var volumeBackup = 0
+    private var host : InetAddress? = null
+    private var port : Int? = null
+    private var discoveryRunning = false
+    private var compositeDisposable = CompositeDisposable()
 
     object ACTION {
         const val Initial = "Initial"
         const val Pause = "Pause"
         const val Resume = "Resume"
     }
-    private fun discovery() : Observable<NsdServiceInfo> {
-        if (!::discoveryResult.isInitialized) {
-            discoveryResult = Observable.create{
-                val mNsdManager = getSystemService(Context.NSD_SERVICE) as NsdManager
-                val mDiscoveryListener = object : NsdManager.DiscoveryListener {
-                    override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
-                        val mDiscoveryListener = this
-                        Log.d(TAG, "ServiceFound: $serviceInfo")
-                        mNsdManager.resolveService(serviceInfo, object: NsdManager.ResolveListener {
-                            override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
-                                Log.e(TAG, "Resolve failed: $errorCode")
-                            }
-
-                            override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
-                                Log.d(TAG, "Resolve Succeeded. $serviceInfo")
-                                mNsdManager.stopServiceDiscovery(mDiscoveryListener)
-                                if (serviceInfo !== null) {
-                                    it.onNext(serviceInfo)
-                                }
-                            }
-
-                        })
+    private fun discovery() {
+        if (discoveryRunning) return
+        discoveryRunning = true
+        val mNsdManager = getSystemService(Context.NSD_SERVICE) as NsdManager
+        val mDiscoveryListener = object : NsdManager.DiscoveryListener {
+            override fun onServiceFound(serviceInfo: NsdServiceInfo?) {
+                Log.d(TAG, "ServiceFound: $serviceInfo")
+                mNsdManager.resolveService(serviceInfo, object: NsdManager.ResolveListener {
+                    override fun onResolveFailed(serviceInfo: NsdServiceInfo?, errorCode: Int) {
+                        Log.e(TAG, "Resolve failed: $errorCode")
                     }
 
-                    override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                        Log.e(TAG, "Stop DNS-SD discovery failed: Error code:$errorCode")
-                        mNsdManager.stopServiceDiscovery(this)
+                    override fun onServiceResolved(serviceInfo: NsdServiceInfo?) {
+                        Log.d(TAG, "Resolve Succeeded. $serviceInfo")
+                        if (serviceInfo == null) return
+                        if (host != serviceInfo.host || port != serviceInfo.port || mSocket == null) {
+                            host = serviceInfo.host
+                            port = serviceInfo.port
+                            connect()
+                        }
                     }
 
-                    override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
-                        Log.e(TAG, "Start DNS-SD discovery failed: Error code:$errorCode")
-                        mNsdManager.stopServiceDiscovery(this)
-                    }
+                })
+            }
 
-                    override fun onServiceLost(serviceInfo: NsdServiceInfo?) {
-                        Log.e(TAG, "DNS-SD service lost: $serviceInfo")
-                    }
+            override fun onStopDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                Log.e(TAG, "Stop DNS-SD discovery failed: Error code:$errorCode")
+                mNsdManager.stopServiceDiscovery(this)
+            }
 
-                    override fun onDiscoveryStarted(serviceType: String?) {
-                        Log.d(TAG, "DNS-SD discovery started")
-                    }
+            override fun onStartDiscoveryFailed(serviceType: String?, errorCode: Int) {
+                Log.e(TAG, "Start DNS-SD discovery failed: Error code:$errorCode")
+                mNsdManager.stopServiceDiscovery(this)
+            }
 
-                    override fun onDiscoveryStopped(serviceType: String?) {
-                        Log.d(TAG, "DNS-SD discovery stopped: $serviceType")
-                        it.onComplete()
-                    }
-                }
-                mNsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, mDiscoveryListener)
+            override fun onServiceLost(serviceInfo: NsdServiceInfo?) {
+                Log.e(TAG, "DNS-SD service lost: $serviceInfo")
+            }
+
+            override fun onDiscoveryStarted(serviceType: String?) {
+                Log.d(TAG, "DNS-SD discovery started")
+            }
+
+            override fun onDiscoveryStopped(serviceType: String?) {
+                Log.d(TAG, "DNS-SD discovery stopped: $serviceType")
             }
         }
-        return discoveryResult
+        mNsdManager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, mDiscoveryListener)
     }
 
-    private fun connect() : Observable<Socket> {
-        return if (mSocket != null) {
-            Observable.just(mSocket)
-        } else {
-            discovery().flatMap<Socket> {serviceInfo ->
-                Observable.create{
-                    val host = serviceInfo.host
-                    val port = serviceInfo.port
-                    val socket = Socket(host, port)
-                    it.onNext(socket)
-                    mSocket = socket
-                    EventBus.getDefault().post(ConnectedEvent(true))
-                    Log.d(TAG, "Socket connected")
-                    val onClose: Observable<Boolean> = Observable.create{emitter ->
-                        try {
-                            var bytes : Int
-                            do {
-                                bytes = socket.getInputStream().read()
-                            }
-                            while (bytes != -1)
-                            Log.v(TAG, "Socket received -1")
-                        } catch (err: IOException) {
-                            Log.e(TAG, "Socket exception: ${err.message}")
-                        }
-                        Log.d(TAG, "Socket closed")
-                        emitter.onNext(true)
-                        emitter.onComplete()
-                    }
-                    Log.d(TAG, "onClose defined")
-                    onClose
-                        .observeOn(Schedulers.io())
-                        .subscribeOn(Schedulers.io())
-                        .subscribe{
-                            mSocket = null
-                            Log.d(TAG, "Socket disconnected")
-                            EventBus.getDefault().post(ConnectedEvent(false))
-                        }
-                    Log.d(TAG, "onClose subscribe")
-                    it.onComplete()
-                }
+    private fun connect() {
+        val p = port
+        val h = host
+        if (h == null || p == null) return
+        var socket : Socket? = null
+        var retryTimes = 3
+        while (retryTimes-- != 0) {
+            try {
+                socket = Socket(h, p)
+                Log.d(TAG, "Socket connected: $host:$port")
+                break
+            } catch (err : ConnectException) {
+                Thread.sleep(1000)
+                Log.e(TAG, err.toString())
             }
         }
+        if (socket == null) return
+
+        mSocket = socket
+        val onClose: Observable<Boolean> = Observable.create{ emitter ->
+            try {
+                var bytes : Int
+                do {
+                    bytes = socket.getInputStream().read()
+                }
+                while (bytes != -1)
+                Log.e(TAG, "Socket received -1")
+                emitter.onNext(true)
+            } catch (err: IOException) {
+                Log.e(TAG, "Socket exception: ${err.message}")
+                emitter.onNext(false)
+            }
+            Log.d(TAG, "Socket closed")
+
+            emitter.onComplete()
+        }
+        val compositeDisposable = CompositeDisposable()
+        val disposable : Disposable = onClose
+            .observeOn(Schedulers.io())
+            .subscribeOn(Schedulers.io())
+            .subscribe {
+                mSocket?.close()
+                mSocket = null
+                Log.d(TAG, "Socket disconnected")
+                EventBus.getDefault().post(ConnectedEvent(false))
+                if (it) connect()
+            }
+        compositeDisposable.add(disposable)
+
+        EventBus.getDefault().post(ConnectedEvent(true))
     }
 
     private fun getVolume(socket: Socket) : Observable<Volume> {
@@ -191,16 +203,17 @@ class Service: android.app.Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        AndroidNetworking.initialize(this)
         val action = intent?.action
         when (action) {
             ACTION.Initial -> {
                 Log.d(TAG, "Initial")
-                AndroidNetworking.initialize(this)
-                connect().subscribe {}
+                discovery()
             }
             ACTION.Pause -> {
                 Log.d(TAG, "Pause")
-                connect().subscribe {socket ->
+                val socket = mSocket
+                if (socket != null) {
                     val target = 0
                     getVolume(socket).subscribe {
                         pauseOrStop(socket)
@@ -212,7 +225,8 @@ class Service: android.app.Service() {
             }
             ACTION.Resume -> {
                 Log.d(TAG, "Resume")
-                connect().subscribe {socket ->
+                val socket = mSocket
+                if (socket != null) {
                     val target = volumeBackup
                     getVolume(socket).subscribe {
                         pauseOrStop(socket)
@@ -220,7 +234,6 @@ class Service: android.app.Service() {
                         setVolume(target - it.volum, socket)
                     }
                 }
-
             }
         }
         return super.onStartCommand(intent, flags, startId)
@@ -228,6 +241,7 @@ class Service: android.app.Service() {
 
     override fun onDestroy() {
         mSocket?.close()
+        compositeDisposable.dispose()
         Log.d(TAG, "Socket close")
     }
 
