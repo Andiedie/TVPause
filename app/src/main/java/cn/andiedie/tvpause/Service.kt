@@ -153,17 +153,18 @@ class Service: android.app.Service() {
             emitter.onComplete()
         }
         val compositeDisposable = CompositeDisposable()
-        val disposable : Disposable = onClose
-            .observeOn(Schedulers.io())
-            .subscribeOn(Schedulers.io())
-            .subscribe {
-                mSocket?.close()
-                mSocket = null
-                Log.d(TAG, "Socket disconnected")
-                EventBus.getDefault().post(ConnectedEvent(false))
-                if (it) connect()
-            }
-        compositeDisposable.add(disposable)
+        compositeDisposable.add(
+            onClose
+                .observeOn(Schedulers.io())
+                .subscribeOn(Schedulers.io())
+                .subscribe {
+                    mSocket?.close()
+                    mSocket = null
+                    Log.d(TAG, "Socket disconnected")
+                    EventBus.getDefault().post(ConnectedEvent(false))
+                    if (it) connect()
+                }
+        )
 
         EventBus.getDefault().post(ConnectedEvent(true))
     }
@@ -216,12 +217,14 @@ class Service: android.app.Service() {
                 val socket = mSocket
                 if (socket != null) {
                     val target = 0
-                    getVolume(socket).subscribe {
-                        pauseOrStop(socket)
-                        volumeBackup = it.volum
-                        Log.d(TAG, "target: $target current:${it.volum}")
-                        setVolume(target - it.volum, socket)
-                    }
+                    compositeDisposable.add(
+                        getVolume(socket).subscribe {
+                            pauseOrStop(socket)
+                            volumeBackup = it.volum
+                            Log.d(TAG, "target: $target current:${it.volum}")
+                            setVolume(target - it.volum, socket)
+                        }
+                    )
                     Toast.makeText(this, "暂停播放", Toast.LENGTH_LONG).show()
                 }
             }
@@ -230,11 +233,13 @@ class Service: android.app.Service() {
                 val socket = mSocket
                 if (socket != null) {
                     val target = volumeBackup
-                    getVolume(socket).subscribe {
-                        pauseOrStop(socket)
-                        Log.d(TAG, "target: $target current:${it.volum}")
-                        setVolume(target - it.volum, socket)
-                    }
+                    compositeDisposable.add(
+                        getVolume(socket).subscribe {
+                            pauseOrStop(socket)
+                            Log.d(TAG, "target: $target current:${it.volum}")
+                            setVolume(target - it.volum, socket)
+                        }
+                    )
                     Toast.makeText(this, "暂停播放", Toast.LENGTH_LONG).show()
                 }
             }
