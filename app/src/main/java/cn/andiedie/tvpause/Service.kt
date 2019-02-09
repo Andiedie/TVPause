@@ -6,6 +6,7 @@ import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.IBinder
 import android.util.Log
+import android.widget.Toast
 import com.androidnetworking.AndroidNetworking
 import com.google.gson.Gson
 import com.rx2androidnetworking.Rx2AndroidNetworking
@@ -221,6 +222,7 @@ class Service: android.app.Service() {
                         Log.d(TAG, "target: $target current:${it.volum}")
                         setVolume(target - it.volum, socket)
                     }
+                    Toast.makeText(this, "暂停播放", Toast.LENGTH_LONG).show()
                 }
             }
             ACTION.Resume -> {
@@ -233,6 +235,7 @@ class Service: android.app.Service() {
                         Log.d(TAG, "target: $target current:${it.volum}")
                         setVolume(target - it.volum, socket)
                     }
+                    Toast.makeText(this, "暂停播放", Toast.LENGTH_LONG).show()
                 }
             }
         }
