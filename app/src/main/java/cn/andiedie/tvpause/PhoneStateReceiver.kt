@@ -19,14 +19,14 @@ class PhoneStateReceiver : BroadcastReceiver() {
                     // resume
                     Intent(context, Service::class.java).also {
                         it.action = Service.ACTION.Resume
-                        context.startService(intent)
+                        context.startService(it)
                     }
                 } else if (lastIdle) {
                     lastIdle = false
                     // pause
                     Intent(context, Service::class.java).also {
                         it.action = Service.ACTION.Pause
-                        context.startService(intent)
+                        context.startService(it)
                     }
                 }
             }

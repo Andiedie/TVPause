@@ -39,15 +39,17 @@ class MainActivity : AppCompatActivity() {
         statusView = findViewById(R.id.status)
 
         findViewById<Button>(R.id.pause).setOnClickListener {
-            Intent(this, Service::class.java)
-            intent.action = Service.ACTION.Pause
-            startService(intent)
+            Intent(this, Service::class.java).also {
+                it.action = Service.ACTION.Pause
+                startService(it)
+            }
         }
 
         findViewById<Button>(R.id.resume).setOnClickListener {
-            Intent(this, Service::class.java)
-            intent.action = Service.ACTION.Resume
-            startService(intent)
+            Intent(this, Service::class.java).also {
+                it.action = Service.ACTION.Resume
+                startService(it)
+            }
         }
 
         val checkBox = findViewById<CheckBox>(R.id.pauseOnCall)
