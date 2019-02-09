@@ -12,7 +12,6 @@ import com.google.gson.Gson
 import com.rx2androidnetworking.Rx2AndroidNetworking
 import io.reactivex.Observable
 import io.reactivex.disposables.CompositeDisposable
-import io.reactivex.disposables.Disposable
 import io.reactivex.schedulers.Schedulers
 import org.greenrobot.eventbus.EventBus
 import java.io.IOException
@@ -62,9 +61,9 @@ class Service: android.app.Service() {
     private var compositeDisposable = CompositeDisposable()
 
     object ACTION {
-        const val Initial = "Initial"
-        const val Pause = "Pause"
-        const val Resume = "Resume"
+        const val INITIAL = "INITIAL"
+        const val PAUSE = "PAUSE"
+        const val RESUME = "RESUME"
     }
     private fun discovery() {
         if (discoveryRunning) return
@@ -208,12 +207,12 @@ class Service: android.app.Service() {
         AndroidNetworking.initialize(this)
         val action = intent?.action
         when (action) {
-            ACTION.Initial -> {
-                Log.d(TAG, "Initial")
+            ACTION.INITIAL -> {
+                Log.d(TAG, "INITIAL")
                 discovery()
             }
-            ACTION.Pause -> {
-                Log.d(TAG, "Pause")
+            ACTION.PAUSE -> {
+                Log.d(TAG, "PAUSE")
                 val socket = mSocket
                 if (socket != null) {
                     val target = 0
@@ -228,8 +227,8 @@ class Service: android.app.Service() {
                     Toast.makeText(this, "暂停播放", Toast.LENGTH_LONG).show()
                 }
             }
-            ACTION.Resume -> {
-                Log.d(TAG, "Resume")
+            ACTION.RESUME -> {
+                Log.d(TAG, "RESUME")
                 val socket = mSocket
                 if (socket != null) {
                     val target = volumeBackup

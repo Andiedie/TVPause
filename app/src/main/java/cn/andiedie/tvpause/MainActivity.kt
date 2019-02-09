@@ -33,21 +33,21 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val intent = Intent(this, Service::class.java)
-        intent.action = Service.ACTION.Initial
+        intent.action = Service.ACTION.INITIAL
         startService(intent)
 
         statusView = findViewById(R.id.status)
 
         findViewById<Button>(R.id.pause).setOnClickListener {
             Intent(this, Service::class.java).also {
-                it.action = Service.ACTION.Pause
+                it.action = Service.ACTION.PAUSE
                 startService(it)
             }
         }
 
         findViewById<Button>(R.id.resume).setOnClickListener {
             Intent(this, Service::class.java).also {
-                it.action = Service.ACTION.Resume
+                it.action = Service.ACTION.RESUME
                 startService(it)
             }
         }
