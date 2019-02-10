@@ -20,6 +20,8 @@ import android.os.Handler
 import android.os.Looper
 import com.litesuits.common.utils.HexUtil
 import com.litesuits.common.utils.MD5Util
+import io.reactivex.functions.BiFunction
+import java.net.InetAddress
 
 
 private const val TAG = "TVPause.TVService"
@@ -34,15 +36,13 @@ private val CONFIRM_BYTES = byteArrayOf(
     0x00, 0x00, 0x03, 0x01
 )
 
-private const val KEY = "3c:bd:3e:84:35:31"
-
 class TVService: IntentService(TAG) {
     companion object ACTION {
         const val PAUSE = "PAUSE"
         const val RESUME = "RESUME"
     }
     private fun discovery() : Observable<NsdServiceInfo> {
-        val result : Observable<NsdServiceInfo> =  if (checkWiFi()) {
+        return if (checkWiFi()) {
             Observable.create { emitter ->
                 val mNsdManager = getSystemService(Context.NSD_SERVICE) as NsdManager
                 val mDiscoveryListener = object : NsdManager.DiscoveryListener {
@@ -92,11 +92,10 @@ class TVService: IntentService(TAG) {
         } else {
             Observable.error(Error("非 WiFi 网络"))
         }
-        return result.timeout(5, TimeUnit.SECONDS)
     }
 
     private fun connect(serviceInfo: NsdServiceInfo) : Observable<Socket> {
-        val result : Observable<Socket> = Observable.create {
+        return Observable.create {
             var socket : Socket?
             while (true) {
                 try {
@@ -115,7 +114,6 @@ class TVService: IntentService(TAG) {
             it.onNext(socket)
             it.onComplete()
         }
-        return result.timeout(5, TimeUnit.SECONDS)
     }
 
     private fun checkWiFi() : Boolean {
@@ -129,9 +127,9 @@ class TVService: IntentService(TAG) {
         }
     }
 
-    private fun getVolume(socket: Socket) : Observable<Volume> {
+    private fun getVolume(address: InetAddress) : Observable<Volume> {
         return Rx2AndroidNetworking
-            .get("http://${socket.inetAddress.hostAddress}:$HTTP_PORT/general")
+            .get("http://${address.hostAddress}:$HTTP_PORT/general")
             .addQueryParameter("action", "getVolum")
             .build()
             .getObjectObservable(APIGetVolume::class.java)
@@ -149,20 +147,25 @@ class TVService: IntentService(TAG) {
         Log.d(TAG, "stopOrResume")
     }
 
-    private fun setVolume(target: Int, socket: Socket) : Observable<Boolean>  {
+    private fun setVolume(address: InetAddress, key: String, target: Int) : Observable<Boolean>  {
         Log.d(TAG, "Volume set to $target")
         val volume = target.toString()
         val now = System.currentTimeMillis().toString()
-        val sign = HexUtil.encodeHexStr(MD5Util.md5("mitvsignsalt$volume$KEY${now.substring(now.length-5)}"))
+        val sign = HexUtil.encodeHexStr(MD5Util.md5("mitvsignsalt$volume$key${now.substring(now.length-5)}"))
         return Rx2AndroidNetworking
-            .get("http://${socket.inetAddress.hostAddress}:$HTTP_PORT/general")
+            .get("http://${address.hostAddress}:$HTTP_PORT/general")
             .addQueryParameter("action", "setVolum")
             .addQueryParameter("volum", volume)
             .addQueryParameter("ts", now)
             .addQueryParameter("sign", sign)
             .build()
             .getObjectObservable(APISetVolume::class.java)
-            .map { it.request_result == 200 }
+            .map {
+                if (it.request_result != 200) {
+                    throw Error("Fail to set volume")
+                }
+                it.request_result == 200
+            }
 
     }
 
@@ -171,21 +174,35 @@ class TVService: IntentService(TAG) {
         val setting = getSharedPreferences(Const.SETTING_NAME, Context.MODE_PRIVATE)
         when (action) {
             PAUSE -> {
-                lateinit var socket: Socket
                 Log.d(TAG, "PAUSE")
+                lateinit var info: NsdServiceInfo
+//                discovery()
+//                    .subscribe {
+//                        val i = it.attributes.iterator()
+//                        while (i.hasNext()) {
+//                            val pair = i.next()
+//                            val a = pair.value
+//                            Log.d(TAG, "Key: [${pair.key}] -> Value: [${String(pair.value)}]")
+//                        }
+//                    }
                 discovery()
-                    .flatMap { connect(it) }
-                    .flatMap<Volume> {
-                        socket = it
-                        getVolume(it)
+                    .flatMap {
+                        info = it
+                        connect(it)
                     }
-                    .flatMap<Boolean> {
-                        val target = 0
+                    .flatMap {
+                        pauseOrStop(it)
+                        it.close()
+                        getVolume(info.host)
+                    }
+                    .flatMap {
+                        val bytes = info.attributes["mac"] ?: throw Error("Can not find mac")
+                        val key = String(bytes)
                         setting.edit().putInt(Const.VOLUME_BACKUP, it.volum).apply()
-                        Log.d(TAG, "target: $target current:${it.volum}")
-                        pauseOrStop(socket)
-                        setVolume(target, socket)
+                        Log.d(TAG, "Set volume to 0")
+                        setVolume(info.host, key, 0)
                     }
+                    .timeout(5, TimeUnit.SECONDS)
                     .subscribeOn(Schedulers.io())
                     .subscribe({
                         Handler(Looper.getMainLooper()).post{
@@ -201,19 +218,22 @@ class TVService: IntentService(TAG) {
             }
             RESUME -> {
                 Log.d(TAG, "RESUME")
-                lateinit var socket: Socket
+                lateinit var info: NsdServiceInfo
                 discovery()
-                    .flatMap { connect(it) }
-                    .flatMap<Volume> {
-                        socket = it
-                        getVolume(it)
+                    .flatMap {
+                        info = it
+                        connect(it)
                     }
                     .flatMap {
+                        pauseOrStop(it)
+                        it.close()
+                        val bytes = info.attributes["mac"] ?: throw Error("Can not find mac")
+                        val key = String(bytes)
                         val target = setting.getInt(Const.VOLUME_BACKUP, 0)
-                        Log.d(TAG, "target: $target current:${it.volum}")
-                        pauseOrStop(socket)
-                        setVolume(target, socket)
+                        Log.d(TAG, "Set volume to $target")
+                        setVolume(info.host, key, target)
                     }
+                    .timeout(5, TimeUnit.SECONDS)
                     .subscribeOn(Schedulers.io())
                     .subscribe({
                         Handler(Looper.getMainLooper()).post{
