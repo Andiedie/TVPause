@@ -10,8 +10,12 @@
             android:supportsRtl="true"
             android:usesCleartextTraffic="true"
             android:theme="@style/AppTheme" tools:ignore="GoogleAppIndexingWarning"
-            tools:targetApi="m">
-        <activity android:name=".MainActivity">
+            tools:targetApi="m"
+            >
+        <activity
+                android:name=".MainActivity"
+                android:screenOrientation="portrait"
+                >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
 
