@@ -59,6 +59,7 @@ class Service: android.app.Service() {
     private var port : Int? = null
     private var discoveryRunning = false
     private var compositeDisposable = CompositeDisposable()
+    private var status = ACTION.RESUME
 
     object ACTION {
         const val INITIAL = "INITIAL"
@@ -214,7 +215,8 @@ class Service: android.app.Service() {
             ACTION.PAUSE -> {
                 Log.d(TAG, "PAUSE")
                 val socket = mSocket
-                if (socket != null) {
+                if (socket != null && status == ACTION.RESUME) {
+                    status = ACTION.PAUSE
                     val target = 0
                     compositeDisposable.add(
                         getVolume(socket).subscribe {
@@ -230,7 +232,8 @@ class Service: android.app.Service() {
             ACTION.RESUME -> {
                 Log.d(TAG, "RESUME")
                 val socket = mSocket
-                if (socket != null) {
+                if (socket != null && status == ACTION.PAUSE) {
+                    status = ACTION.RESUME
                     val target = volumeBackup
                     compositeDisposable.add(
                         getVolume(socket).subscribe {
