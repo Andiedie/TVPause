@@ -12,18 +12,14 @@ import android.widget.Toast
 import com.google.gson.Gson
 import com.rx2androidnetworking.Rx2AndroidNetworking
 import io.reactivex.Observable
-import io.reactivex.android.schedulers.AndroidSchedulers
 import io.reactivex.schedulers.Schedulers
 import java.net.ConnectException
 import java.net.Socket
 import java.util.concurrent.TimeUnit
-import android.R.id.message
 import android.os.Handler
 import android.os.Looper
-import android.text.TextUtils
-import java.security.MessageDigest
-import java.security.NoSuchAlgorithmException
-import kotlin.experimental.and
+import com.litesuits.common.utils.HexUtil
+import com.litesuits.common.utils.MD5Util
 
 
 private const val TAG = "TVPause.TVService"
@@ -38,25 +34,9 @@ private val CONFIRM_BYTES = byteArrayOf(
     0x00, 0x00, 0x03, 0x01
 )
 
-private val VOLUME_UP_BYTES = byteArrayOf(
-    0x04, 0x00, 0x41, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02,
-    0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x18, 0x04, 0x00, 0x00, 0x00, 0x73, 0x05, 0x00,
-    0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x08, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x0b,
-    0x00, 0x00, 0x03, 0x01
-)
-
-private val VOLUME_DOWN_BYTES = byteArrayOf(
-    0x04, 0x00, 0x41, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3a, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02,
-    0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x19, 0x04, 0x00, 0x00, 0x00, 0x72, 0x05, 0x00,
-    0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x08, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x0b,
-    0x00, 0x00, 0x03, 0x01
-)
-
+private const val KEY = "3c:bd:3e:84:35:31"
 
 class TVService: IntentService(TAG) {
-    lateinit var socket : Socket
     companion object ACTION {
         const val PAUSE = "PAUSE"
         const val RESUME = "RESUME"
@@ -154,8 +134,7 @@ class TVService: IntentService(TAG) {
             .get("http://${socket.inetAddress.hostAddress}:$HTTP_PORT/general")
             .addQueryParameter("action", "getVolum")
             .build()
-            .getObjectObservable(APIVolume::class.java)
-            .subscribeOn(Schedulers.io())
+            .getObjectObservable(APIGetVolume::class.java)
             .map { Gson().fromJson(it.data, Volume::class.java) }
     }
 
@@ -170,44 +149,21 @@ class TVService: IntentService(TAG) {
         Log.d(TAG, "stopOrResume")
     }
 
-    private fun setVolume(delta: Int, socket: Socket) {
-        if (delta == 0) { return }
-        val oStream = socket.getOutputStream()
-        val press = if (delta > 0) VOLUME_UP_BYTES else VOLUME_DOWN_BYTES
-        val up = CONFIRM_BYTES.copyOf()
-        up[0x13] = 0x01
-        for (i in 1..(Math.abs(delta))) {
-            oStream.write(press)
-//            oStream.write(up)
-        }
-//        oStream.write(up)
-        oStream.flush()
-        Log.d(TAG, "Volume ${if(delta > 0) "up" else "down"} ${Math.abs(delta)}")
-    }
+    private fun setVolume(target: Int, socket: Socket) : Observable<Boolean>  {
+        Log.d(TAG, "Volume set to $target")
+        val volume = target.toString()
+        val now = System.currentTimeMillis().toString()
+        val sign = HexUtil.encodeHexStr(MD5Util.md5("mitvsignsalt$volume$KEY${now.substring(now.length-5)}"))
+        return Rx2AndroidNetworking
+            .get("http://${socket.inetAddress.hostAddress}:$HTTP_PORT/general")
+            .addQueryParameter("action", "setVolum")
+            .addQueryParameter("volum", volume)
+            .addQueryParameter("ts", now)
+            .addQueryParameter("sign", sign)
+            .build()
+            .getObjectObservable(APISetVolume::class.java)
+            .map { it.request_result == 200 }
 
-    private fun md5(text: String): String {
-        try {
-            val instance: MessageDigest = MessageDigest.getInstance("MD5")
-            val digest:ByteArray = instance.digest(text.toByteArray())
-            val sb : StringBuffer = StringBuffer()
-            for (b in digest) {
-                //获取低八位有效值
-                val i :Int = b.toInt() and 0xff
-                //将整数转化为16进制
-                var hexString = Integer.toHexString(i)
-                if (hexString.length < 2) {
-                    //如果是一位的话，补0
-                    hexString = "0$hexString"
-                }
-                sb.append(hexString)
-            }
-            return sb.toString()
-
-        } catch (e: NoSuchAlgorithmException) {
-            e.printStackTrace()
-        }
-
-        return ""
     }
 
     override fun onHandleIntent(intent: Intent?) {
@@ -215,6 +171,7 @@ class TVService: IntentService(TAG) {
         val setting = getSharedPreferences(Const.SETTING_NAME, Context.MODE_PRIVATE)
         when (action) {
             PAUSE -> {
+                lateinit var socket: Socket
                 Log.d(TAG, "PAUSE")
                 discovery()
                     .flatMap { connect(it) }
@@ -222,16 +179,15 @@ class TVService: IntentService(TAG) {
                         socket = it
                         getVolume(it)
                     }
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(Schedulers.io())
-                    .subscribe({
+                    .flatMap<Boolean> {
                         val target = 0
                         setting.edit().putInt(Const.VOLUME_BACKUP, it.volum).apply()
                         Log.d(TAG, "target: $target current:${it.volum}")
                         pauseOrStop(socket)
-                        setVolume(-2, socket)
-//                        setVolume(target - it.volum, socket)
-//                        socket.close()
+                        setVolume(target, socket)
+                    }
+                    .subscribeOn(Schedulers.io())
+                    .subscribe({
                         Handler(Looper.getMainLooper()).post{
                             Toast.makeText(
                                 applicationContext,
@@ -239,28 +195,27 @@ class TVService: IntentService(TAG) {
                                 Toast.LENGTH_LONG
                             ).show()
                         }
-                        stopSelf()
                     }, {
                         Log.e(TAG, it.message)
                     })
             }
             RESUME -> {
                 Log.d(TAG, "RESUME")
+                lateinit var socket: Socket
                 discovery()
                     .flatMap { connect(it) }
                     .flatMap<Volume> {
                         socket = it
                         getVolume(it)
                     }
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(Schedulers.io())
-                    .subscribe({
+                    .flatMap {
                         val target = setting.getInt(Const.VOLUME_BACKUP, 0)
                         Log.d(TAG, "target: $target current:${it.volum}")
                         pauseOrStop(socket)
-                        setVolume(2, socket)
-//                        setVolume(target - it.volum, socket)
-//                        socket.close()
+                        setVolume(target, socket)
+                    }
+                    .subscribeOn(Schedulers.io())
+                    .subscribe({
                         Handler(Looper.getMainLooper()).post{
                             Toast.makeText(
                                 applicationContext,
@@ -268,7 +223,6 @@ class TVService: IntentService(TAG) {
                                 Toast.LENGTH_LONG
                             ).show()
                         }
-                        stopSelf()
                     }, {
                         Log.e(TAG, it.message)
                     })
@@ -279,9 +233,5 @@ class TVService: IntentService(TAG) {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "Destroy")
-        if (::socket.isInitialized) {
-            socket.close()
-            Log.d(TAG, "Socket close")
-        }
     }
 }
