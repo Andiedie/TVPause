@@ -34,4 +34,5 @@ dependencies {
     implementation 'io.reactivex.rxjava2:rxjava:2.2.6'
     implementation 'com.amitshekhar.android:rx2-android-networking:1.0.2'
     implementation 'com.google.code.gson:gson:2.8.5'
+    implementation 'com.luffykou:android-common-utils:1.1.3'
 }
