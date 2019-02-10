@@ -205,11 +205,11 @@ class Service: android.app.Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        AndroidNetworking.initialize(this)
         val action = intent?.action
         when (action) {
             ACTION.INITIAL -> {
                 Log.d(TAG, "INITIAL")
+                AndroidNetworking.initialize(this)
                 discovery()
             }
             ACTION.PAUSE -> {
@@ -242,7 +242,7 @@ class Service: android.app.Service() {
                             setVolume(target - it.volum, socket)
                         }
                     )
-                    Toast.makeText(this, "暂停播放", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "继续播放", Toast.LENGTH_LONG).show()
                 }
             }
         }
