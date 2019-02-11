@@ -176,15 +176,6 @@ class TVService: IntentService(TAG) {
             PAUSE -> {
                 Log.d(TAG, "PAUSE")
                 lateinit var info: NsdServiceInfo
-//                discovery()
-//                    .subscribe {
-//                        val i = it.attributes.iterator()
-//                        while (i.hasNext()) {
-//                            val pair = i.next()
-//                            val a = pair.value
-//                            Log.d(TAG, "Key: [${pair.key}] -> Value: [${String(pair.value)}]")
-//                        }
-//                    }
                 discovery()
                     .flatMap {
                         info = it
